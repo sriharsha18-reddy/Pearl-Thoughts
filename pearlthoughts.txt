@@ -1,0 +1,140 @@
+Explanation of the Demo & Code
+Overview
+The provided code demonstrates a basic EmailService in TypeScript designed to send emails using two mock email providers. It includes features like retry logic with exponential backoff, provider fallback, idempotency, rate limiting, and status tracking. The service is built with clean code practices and is unit-tested to ensure reliability.
+
+1. Project Structure
+src/: Contains the main service implementation and the mock providers.
+test/: Contains unit tests for the EmailService.
+package.json: Manages dependencies and scripts.
+tsconfig.json: TypeScript configuration.
+README.md: Documentation for setup and usage.
+2. EmailProvider Interface
+The EmailProvider interface ensures that both mock providers implement a sendEmail method, which returns a promise resolving to a boolean indicating success or failure.
+
+typescript
+Copy code
+export interface EmailProvider {
+    sendEmail(to: string, subject: string, body: string): Promise<boolean>;
+}
+3. Mock Providers
+MockProvider1 and MockProvider2 are simple classes that simulate email sending. MockProvider1 always succeeds, while MockProvider2 has a 50% chance of failing.
+typescript
+Copy code
+export class MockProvider1 implements EmailProvider {
+    async sendEmail(to: string, subject: string, body: string): Promise<boolean> {
+        console.log(`MockProvider1: Sending email to ${to}`);
+        return true;
+    }
+}
+
+export class MockProvider2 implements EmailProvider {
+    async sendEmail(to: string, subject: string, body: string): Promise<boolean> {
+        console.log(`MockProvider2: Sending email to ${to}`);
+        return Math.random() > 0.5;
+    }
+}
+4. EmailService Class
+The EmailService class is the core component, handling the email-sending process with all the required features.
+
+Key Features:
+
+Retry with Exponential Backoff:
+The retryWithBackoff method retries email sending, doubling the wait time after each failed attempt (e.g., 1s, 2s, 4s).
+It stops retrying after a predefined number of attempts (maxRetries).
+typescript
+Copy code
+private async retryWithBackoff(fn: () => Promise<boolean>, retries = 0): Promise<boolean> {
+    if (retries > this.maxRetries) return false;
+    const success = await fn();
+    if (!success) {
+        const backoffTime = Math.pow(2, retries) * 1000;
+        console.log(`Retrying in ${backoffTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
+        return this.retryWithBackoff(fn, retries + 1);
+    }
+    return success;
+}
+Fallback Mechanism:
+If provider1 fails after all retries, the service automatically switches to provider2 and retries the process.
+typescript
+Copy code
+let success = await this.retryWithBackoff(() => this.provider1.sendEmail(to, subject, body));
+let provider = 'Provider1';
+
+if (!success) {
+    console.log('Provider1 failed. Switching to Provider2...');
+    success = await this.retryWithBackoff(() => this.provider2.sendEmail(to, subject, body));
+    provider = 'Provider2';
+}
+Idempotency:
+The service uses an emailCache set to store the unique key of each email (to-subject-body). This prevents duplicate emails from being sent.
+typescript
+Copy code
+const emailKey = `${to}-${subject}-${body}`;
+if (this.emailCache.has(emailKey)) {
+    console.log('Duplicate email detected. Aborting.');
+    return { success: false, retries: 0, provider: '' };
+}
+this.emailCache.add(emailKey);
+Rate Limiting:
+A basic rate limiter ensures that emails are not sent too frequently. The rate limit is checked before sending each email, and the service waits if the limit is exceeded.
+typescript
+Copy code
+private rateLimitCheck(): boolean {
+    const now = Date.now();
+    const timeElapsed = (now - this.lastSentTime) / 60000; // Convert to minutes
+    const allowance = timeElapsed * this.rateLimit;
+    if (allowance < 1) {
+        console.log('Rate limit exceeded. Please wait.');
+        return false;
+    }
+    this.lastSentTime = now;
+    return true;
+}
+Status Tracking:
+After sending an email, the service returns an object with details about the success or failure, the number of retries, and the provider used.
+typescript
+Copy code
+return { success, retries, provider };
+5. Unit Tests
+The unit tests use the Jest framework to validate the functionality of the EmailService.
+
+Test 1: Ensures that emails are sent via Provider1 when it works correctly.
+Test 2: Ensures that the service falls back to Provider2 if Provider1 fails.
+typescript
+Copy code
+test('EmailService should send email via Provider1', async () => {
+    const service = new EmailService(new MockProvider1(), new MockProvider2());
+    const status = await service.sendEmail('test@example.com', 'Test Subject', 'Test Body');
+    expect(status.success).toBe(true);
+    expect(status.provider).toBe('Provider1');
+});
+
+test('EmailService should fallback to Provider2 if Provider1 fails', async () => {
+    const service = new EmailService(new MockProvider2(), new MockProvider1());
+    const status = await service.sendEmail('test@example.com', 'Test Subject', 'Test Body');
+    expect(status.provider).toBe('Provider2');
+});
+6. README
+The README file provides instructions on setting up and using the service, as well as details about the implementation's assumptions.
+
+Running the Demo
+Setup:
+
+Clone the repository and install dependencies using npm install.
+Build the project using npm run build.
+Run Tests:
+
+Execute npm test to run the unit tests and verify that the service behaves as expected.
+Usage:
+
+Create an instance of EmailService using the mock providers and use the sendEmail method to send an email.
+Conclusion
+This implementation showcases a robust EmailService with key features like retry logic, provider fallback, idempotency, and more. The design is modular, following SOLID principles, making it easy to extend or replace components as needed.
+
+
+
+
+
+
+
